@@ -1,12 +1,16 @@
 import csv
 import os
 import time
-from threading import Thread
-from typing import Dict, List, Tuple
-import xml.etree.ElementTree as ET
-from queue import Queue
+import copy
 
 import requests
+import xml.etree.ElementTree as ET
+
+from multiprocessing import Pool
+from threading import Thread
+from typing import Dict, List, Tuple
+from queue import Queue
+from modules.salary import Salary
 
 
 def profile(func):
@@ -40,14 +44,13 @@ class CsvParser:
 
         self.__file_name = file_name
 
-    def create_years_csv(self, output_dir: str):
+    def create_years_csv(self):
         """
         Метод создает csv файлы, разделенные по годам
-        :param output_dir: Название директории для чанков
         :return:
         """
         self.__parse_csv()
-        self.__write_csv(output_dir)
+        self.__write_csv()
 
     def create_convert_csv(self):
         """
@@ -81,6 +84,46 @@ class CsvParser:
                 line = [e['date']] + [e[header] if header in e.keys() else '' for header in headers]
                 writer.writerow(line)
 
+    @staticmethod
+    def handle_csv():
+        """
+        Функция для обработки csv файла и объединения колонки salary
+        :return:
+        """
+        currencies = CsvParser.__get_currencies()
+
+        if not os.path.isdir('converted'):
+            os.mkdir('converted')
+
+        files = os.listdir('years')
+
+        args = map(lambda x: (x, copy.deepcopy(currencies)), files)
+
+        mult_pool = Pool(len(files))
+
+        mult_pool.starmap(handle_year_statistics, args)
+
+    @staticmethod
+    def __get_currencies() -> Dict[str, Dict[str, str | float]]:
+        """
+        Метод для получения словаря с ковертацией валют
+        :return: Словарь с конвертацией валюь по месяцам
+        """
+        result: Dict[str, Dict[str, str | float]] = {}
+        with open('convert.csv', 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            is_title = True
+            title = []
+
+            for row in reader:
+                if is_title:
+                    is_title = False
+                    title = row
+                    continue
+
+                result[row[0]] = dict(zip(title[1:], [float(x) if x != '' else '' for x in row[1:]]))
+
+        return result
 
     def __get_window(self) -> Tuple[int, int]:
         """
@@ -93,7 +136,7 @@ class CsvParser:
 
     def __parse_csv(self):
         """
-        Метод для парсинга файла
+        Метод для парсинга файла csv
         :return:
         """
         with open(self.__file_name, 'r', encoding='utf-8-sig') as f:
@@ -132,17 +175,16 @@ class CsvParser:
         year_vacancies.append(row)
         self.__year_data[now_year] = year_vacancies
 
-    def __write_csv(self, output_dir: str):
+    def __write_csv(self):
         """
         Метод записывает данные в отдельные csv файлы по годам в папке output_dir
-        :param output_dir: Название директории для чанков
         :return:
         """
-        if not os.path.isdir(output_dir):
-            os.mkdir(output_dir)
+        if not os.path.isdir('years'):
+            os.mkdir('years')
 
         for key in self.__year_data.keys():
-            with open(f"{output_dir}/{key}.csv", 'w', encoding='utf-8-sig') as f:
+            with open(f"years/{key}.csv", 'w', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
 
                 writer.writerow(self.__title)
@@ -186,3 +228,29 @@ def get_converts_month(year: int, month: str, results: Queue):
         convert_dict[name] = value / nominal
 
     results.put(convert_dict)
+
+
+def handle_year_statistics(file_name: str, convert_dict: Dict[str, Dict[str, str | float]]):
+    """
+    Функция для обработки csv файла за определенный год
+
+    :param file_name: Название чанка для обработки
+    :param convert_dict: Словарь с конвертацией валют по годам
+    :return:
+    """
+    with open(f'converted/{file_name}', 'w', encoding='utf-8-sig') as wr:
+        writer = csv.writer(wr)
+        with open(f"years/{file_name}", 'r', encoding='utf-8-sig') as r:
+            reader = csv.reader(r, delimiter=',')
+            is_title = True
+
+            for row in reader:
+                if is_title:
+                    is_title = False
+                    writer.writerow([row[0], 'salary'] + row[-2:])
+                    continue
+
+                salary = Salary(row[1], row[2], row[3])
+                new_salary = salary.get_converted_salary(row[-1][:7], convert_dict)
+
+                writer.writerow([row[0], new_salary] + row[-2:])

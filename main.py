@@ -9,8 +9,9 @@ def main():
 
     parser = CsvParser('src/vacancies_dif_currencies.csv')
 
-    parser.create_years_csv('years')
+    parser.create_years_csv()
     parser.create_convert_csv()
+    CsvParser.handle_csv()
 
 
 if __name__ == '__main__':
