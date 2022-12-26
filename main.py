@@ -7,9 +7,10 @@ def main():
     :return:
     """
 
-    parser = CsvParser()
-    parser.create_years_csv('src/vacancies_dif_currencies.csv', 'years')
+    parser = CsvParser('src/vacancies_dif_currencies.csv')
 
+    parser.create_years_csv('years')
+    parser.create_convert_csv()
 
 
 if __name__ == '__main__':

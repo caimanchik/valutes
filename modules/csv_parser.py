@@ -1,7 +1,12 @@
 import csv
 import os
 import time
-from typing import Dict, List
+from threading import Thread
+from typing import Dict, List, Tuple
+import xml.etree.ElementTree as ET
+from queue import Queue
+
+import requests
 
 
 def profile(func):
@@ -24,7 +29,7 @@ class CsvParser:
     """
     Класс для представления сущности парсера
     """
-    def __init__(self):
+    def __init__(self, file_name: str):
         """
         Инициализация парсера
         """
@@ -32,25 +37,58 @@ class CsvParser:
         self.__title = []
         self.__currency_index: int = 0
         self.__count_currency: Dict[str, int] = {}
-        self.__window = []
 
-    def create_years_csv(self, file_name: str, output_dir: str):
+        self.__file_name = file_name
+
+    def create_years_csv(self, output_dir: str):
         """
         Метод создает csv файлы, разделенные по годам
-        :param file_name: Название файла для парсинга
         :param output_dir: Название директории для чанков
         :return:
         """
-        self.__parse_csv(file_name)
+        self.__parse_csv()
         self.__write_csv(output_dir)
 
-    def __parse_csv(self, file_name: str):
+    def create_convert_csv(self):
+        window = self.__get_window()
+
+        results = Queue()
+        threads = []
+
+        for year in range(int(window[0]), int(window[1]) + 1):
+            for month in range(1, 13):
+                th = Thread(target=get_converts_month, args=(year, str(month) if month >= 10 else f"0{month}", results))
+                threads.append(th)
+                th.start()
+
+        for thread in threads:
+            thread.join()
+
+        headers = set([header for data in results.queue for header in data.keys()])
+        headers.remove('date')
+
+        headers = [e for e in headers if self.__count_currency.get(e, 0) > 5000]
+
+        with open('convert.csv', 'w', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            writer.writerow(['date'] + headers)
+
+            for e in sorted(results.queue, key=lambda x: x['date']):
+                line = [e['date']] + [e[header] if header in e.keys() else '' for header in headers]
+                writer.writerow(line)
+
+
+    def __get_window(self) -> Tuple[int, int]:
+        keys = list(sorted(self.__year_data.keys()))
+
+        return int(keys[0]), int(keys[-1])
+
+    def __parse_csv(self):
         """
         Метод для парсинга файла
-        :param file_name: Название файла для парсинга
         :return:
         """
-        with open(file_name, 'r', encoding='utf-8-sig') as f:
+        with open(self.__file_name, 'r', encoding='utf-8-sig') as f:
             reader = csv.reader(f, delimiter=',')
 
             for row in reader:
@@ -105,3 +143,26 @@ class CsvParser:
         :return: Дата
         """
         return row[-1][0:4]
+
+
+def get_converts_month(year: int, month: str, results: Queue):
+    url = f'http://www.cbr.ru/scripts/XML_daily.asp?date_req=01/{month}/{year}'
+    response = requests.get(url)
+
+    valcurs = ET.fromstring(response.content)
+
+    convert_dict = {'date': f"{year}-{month}"}
+
+    for valute in list(valcurs):
+        nominal = 0
+        value = 0
+        name = ''
+
+        for item in list(valute):
+            if item.tag == 'Nominal': nominal = float(item.text.replace(',', '.'))
+            if item.tag == 'Value': value = float(item.text.replace(',', '.'))
+            if item.tag == 'CharCode': name = item.text
+
+        convert_dict[name] = value / nominal
+
+    results.put(convert_dict)
