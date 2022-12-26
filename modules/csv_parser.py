@@ -50,6 +50,10 @@ class CsvParser:
         self.__write_csv(output_dir)
 
     def create_convert_csv(self):
+        """
+        Метод для создания csv файла с конвертацией валют
+        :return:
+        """
         window = self.__get_window()
 
         results = Queue()
@@ -79,6 +83,10 @@ class CsvParser:
 
 
     def __get_window(self) -> Tuple[int, int]:
+        """
+        Возвращает окно для запросов на сайт ЦБ РФ
+        :return: Кортеж из начального и конечного годов
+        """
         keys = list(sorted(self.__year_data.keys()))
 
         return int(keys[0]), int(keys[-1])
@@ -100,6 +108,11 @@ class CsvParser:
 
 
     def __parse_title(self, title: List[str]):
+        """
+        Метод для парсинга заголовка csv файла
+        :param title: Заголовок
+        :return:
+        """
         self.__title = title
         self.__currency_index = title.index('salary_currency')
 
@@ -146,6 +159,13 @@ class CsvParser:
 
 
 def get_converts_month(year: int, month: str, results: Queue):
+    """
+    Метод для получения словаря с конвертациями валют для указанных года и месяца
+    :param year: Год
+    :param month: Месяц
+    :param results: Очередь, в которую добавить результат(сиспользуется для многопоточной реализации программы)
+    :return:
+    """
     url = f'http://www.cbr.ru/scripts/XML_daily.asp?date_req=01/{month}/{year}'
     response = requests.get(url)
 
